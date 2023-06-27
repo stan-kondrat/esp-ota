@@ -1,0 +1,12 @@
+version: "0.0.1"
+description: "Simple wrapper ESP HTTPS OTA"
+url: "https://github.com/stan-kondrat/esp-ota"
+dependencies:
+  idf:
+    version: ">=5"
+files:
+  exclude:
+    - ".github"
+  include:
+    - "src/ota.c"
+    - "src/ota.h"

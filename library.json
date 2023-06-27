@@ -1,0 +1,26 @@
+{
+    "name": "esp-ota",
+    "version": "0.0.1",
+    "description": "Simple wrapper ESP HTTPS OTA",
+    "keywords": "esp32 ota",
+    "repository":
+    {
+      "type": "git",
+      "url": "https://github.com/stan-kondrat/esp-ota"
+    },
+    "authors":
+    [
+      {
+        "name": "Stan Kondrat",
+        "email": "stan.kondrat@gmail.com",
+        "url": "https://github.com/stan-kondrat",
+        "maintainer": true
+      }
+    ],
+    "license": "MIT",
+    "frameworks": "espidf",
+    "platforms": "espressif32",
+    "headers": ["src/ota.h"],
+    "examples": [
+    ]
+  }
