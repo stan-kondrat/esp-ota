@@ -1,6 +1,6 @@
 version: "0.0.1"
-description: "Simple wrapper ESP HTTPS OTA"
-url: "https://github.com/stan-kondrat/esp-ota"
+description: "Simple wrapper ESP32 HTTPS Over-The-Air(OTA)"
+url: "https://github.com/stan-kondrat/ota-esp-component"
 dependencies:
   idf:
     version: ">=5"

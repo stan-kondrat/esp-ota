@@ -1,12 +1,12 @@
 {
-    "name": "esp-ota",
+    "name": "ota-esp-component",
     "version": "0.0.1",
-    "description": "Simple wrapper ESP HTTPS OTA",
+    "description": "Simple wrapper ESP32 HTTPS Over-The-Air(OTA)",
     "keywords": "esp32 ota",
     "repository":
     {
       "type": "git",
-      "url": "https://github.com/stan-kondrat/esp-ota"
+      "url": "https://github.com/stan-kondrat/ota-esp-component"
     },
     "authors":
     [

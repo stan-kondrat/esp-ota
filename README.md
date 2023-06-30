@@ -1,6 +1,6 @@
-# esp-ota
+# Simple wrapper ESP32 HTTPS Over-The-Air(OTA) IDF Component
 
-Simple wrapper [ESP HTTPS OTA](https://github.com/espressif/esp-idf/tree/master/components/esp_https_ota)
+[ESP HTTPS OTA](https://github.com/espressif/esp-idf/tree/master/components/esp_https_ota)
 
 
 ## Install 
@@ -11,9 +11,9 @@ dependencies:
   espressif/led_strip: "*"
   idf:
     version: ">=5"
-  esp-ota:
+  ota-esp-component:
     path: .
-    git: ssh://git@github.com/stan-kondrat/esp-ota.git
+    git: ssh://git@github.com/stan-kondrat/ota-esp-component.git
 ```
 
 2. Reconfigure project
