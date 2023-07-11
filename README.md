@@ -28,9 +28,7 @@ idf.py reconfigure
 
 void app_main(void)
 {
-    ota_install((ota_config_t){
-        .url = "https://example.com/firmware.bin"
-    });
+    ota_install("https://example.com/firmware.bin");
 }
 ```
 

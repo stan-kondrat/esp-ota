@@ -3,25 +3,50 @@
 #include "esp_https_ota.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
+#include "esp_https_ota.h"
+#include "esp_encrypted_img.h"
+
 
 #include "ota.h"
 
-void ota_install(const ota_config_t config);
-void ota_update_task(void *download_url);
+void ota_update_task(void *);
 esp_err_t validate_image_header(const esp_app_desc_t *new_app_info);
+
+#if CONFIG_ESP_HTTPS_OTA_DECRYPT_CB
+static esp_err_t _decrypt_cb(decrypt_cb_arg_t *args, void *user_ctx);
+#endif
 
 static const char *TAG = "OTA";
 
-void ota_install(ota_config_t config) {
-    xTaskCreate(&ota_update_task, "ota_update_task", 1024 * 8, (void *)config.url, 5, NULL);
+TaskHandle_t xOTAUpdateTaskHandle = NULL;
+uint8_t ota_firmware_upgrade_url[OTA_URL_SIZE] = {0};
+char * ota_rsa_private_pem_start = NULL;
+char * ota_rsa_private_pem_end = NULL;
+
+esp_err_t ota_install(const uint8_t * const url) {
+    return ota_install_encrypted(url, NULL, NULL);
 }
 
-void ota_update_task(void *download_url) {
-    ESP_LOGI(TAG, "Starting OTA");
+esp_err_t ota_install_encrypted(const uint8_t * const url, char * pem_start, char * pem_end) {
+    if (xOTAUpdateTaskHandle != NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    strncpy((char *)ota_firmware_upgrade_url, (char *)url, OTA_URL_SIZE);
+    ota_rsa_private_pem_start = pem_start;
+    ota_rsa_private_pem_end = pem_end;
+    ESP_LOGI(TAG, "ota_install (%s)", (char *)ota_firmware_upgrade_url);
+    xTaskCreate(&ota_update_task, "ota_update_task", 1024 * 8, NULL, 5, &xOTAUpdateTaskHandle);
+    return ESP_OK;
+}
+
+
+
+void ota_update_task(void *) {
+    ESP_LOGI(TAG, "Starting OTA, (%s)", (char *)ota_firmware_upgrade_url);
 
     esp_err_t ota_finish_err = ESP_OK;
     esp_http_client_config_t http_config = {
-        .url = (char *)download_url,
+        .url = (char *)ota_firmware_upgrade_url,
         .keep_alive_enable = true,
         .use_global_ca_store = true,
         .buffer_size_tx = 1024,
@@ -31,11 +56,26 @@ void ota_update_task(void *download_url) {
         .http_config = &http_config,
     };
 
+    #if CONFIG_ESP_HTTPS_OTA_DECRYPT_CB
+    if (ota_rsa_private_pem_start != NULL && ota_rsa_private_pem_end != NULL) {
+        esp_decrypt_cfg_t cfg = {};
+        cfg.rsa_pub_key = ota_rsa_private_pem_start;
+        cfg.rsa_pub_key_len = ota_rsa_private_pem_end - ota_rsa_private_pem_start;
+        esp_decrypt_handle_t decrypt_handle = esp_encrypted_img_decrypt_start(&cfg);
+        if (!decrypt_handle) {
+            ESP_LOGE(TAG, "OTA upgrade failed");
+            vTaskDelete(xOTAUpdateTaskHandle);
+        }
+        ota_config.decrypt_cb = _decrypt_cb;
+        ota_config.decrypt_user_ctx = (void *)decrypt_handle;
+    }
+    #endif
+
     esp_https_ota_handle_t https_ota_handle = NULL;
     esp_err_t err = esp_https_ota_begin(&ota_config, &https_ota_handle);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "ESP HTTPS OTA Begin failed");
-        vTaskDelete(NULL);
+        vTaskDelete(xOTAUpdateTaskHandle);
     }
 
     esp_app_desc_t app_desc;
@@ -75,14 +115,14 @@ void ota_update_task(void *download_url) {
                 ESP_LOGE(TAG, "Image validation failed, image is corrupted");
             }
             ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed 0x%x", ota_finish_err);
-            vTaskDelete(NULL);
+            vTaskDelete(xOTAUpdateTaskHandle);
         }
     }
 
 ota_end:
     esp_https_ota_abort(https_ota_handle);
     ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed");
-    vTaskDelete(NULL);
+    vTaskDelete(xOTAUpdateTaskHandle);
 }
 
 esp_err_t validate_image_header(const esp_app_desc_t *new_app_info) {
@@ -98,3 +138,42 @@ esp_err_t validate_image_header(const esp_app_desc_t *new_app_info) {
 
     return ESP_OK;
 }
+
+#if CONFIG_ESP_HTTPS_OTA_DECRYPT_CB
+static esp_err_t _decrypt_cb(decrypt_cb_arg_t *args, void *user_ctx)
+{
+    if (args == NULL || user_ctx == NULL) {
+        ESP_LOGE(TAG, "_decrypt_cb: Invalid argument");
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err;
+    pre_enc_decrypt_arg_t pargs = {};
+    pargs.data_in = args->data_in;
+    pargs.data_in_len = args->data_in_len;
+    err = esp_encrypted_img_decrypt_data((esp_decrypt_handle_t *)user_ctx, &pargs);
+    if (err != ESP_OK && err != ESP_ERR_NOT_FINISHED) {
+        return err;
+    }
+    static bool is_image_verified = false;
+    if (pargs.data_out_len > 0) {
+        args->data_out = pargs.data_out;
+        args->data_out_len = pargs.data_out_len;
+        if (!is_image_verified) {
+            is_image_verified = true;
+            const int app_desc_offset = sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t);
+            // It is unlikely to not have App Descriptor available in first iteration of decrypt callback.
+            assert(args->data_out_len >= app_desc_offset + sizeof(esp_app_desc_t));
+            esp_app_desc_t *app_info = (esp_app_desc_t *) &args->data_out[app_desc_offset];
+            err = validate_image_header(app_info);
+            if (err != ESP_OK) {
+                free(pargs.data_out);
+            }
+            return err;
+        }
+    } else {
+        args->data_out_len = 0;
+    }
+
+    return ESP_OK;
+}
+#endif

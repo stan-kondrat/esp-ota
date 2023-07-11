@@ -1,6 +1,6 @@
 {
     "name": "ota-esp-component",
-    "version": "0.0.1",
+    "version": "0.1.0",
     "description": "Simple wrapper ESP32 HTTPS Over-The-Air(OTA)",
     "keywords": "esp32 ota",
     "repository":
