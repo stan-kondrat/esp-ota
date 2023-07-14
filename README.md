@@ -13,7 +13,7 @@ dependencies:
     version: ">=5"
   ota-esp-component:
     path: .
-    git: ssh://git@github.com/stan-kondrat/ota-esp-component.git
+    git: https://github.com/stan-kondrat/ota-esp-component.git
 ```
 
 2. Reconfigure project
