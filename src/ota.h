@@ -12,9 +12,9 @@ extern "C" {
 #endif
 
 
-esp_err_t ota_install(const uint8_t * const url);
+esp_err_t ota_install(const uint8_t * url);
 
-esp_err_t ota_install_encrypted(const uint8_t * const url, char * pem_start, char * pem_end);
+esp_err_t ota_install_encrypted(const uint8_t * url, const char * pem_start, const char * pem_end);
 
 
 #ifdef __cplusplus

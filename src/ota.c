@@ -20,14 +20,14 @@ static const char *TAG = "OTA";
 
 TaskHandle_t xOTAUpdateTaskHandle = NULL;
 uint8_t ota_firmware_upgrade_url[OTA_URL_SIZE] = {0};
-char * ota_rsa_private_pem_start = NULL;
-char * ota_rsa_private_pem_end = NULL;
+const char * ota_rsa_private_pem_start = NULL;
+const char * ota_rsa_private_pem_end = NULL;
 
-esp_err_t ota_install(const uint8_t * const url) {
+esp_err_t ota_install(const uint8_t * url) {
     return ota_install_encrypted(url, NULL, NULL);
 }
 
-esp_err_t ota_install_encrypted(const uint8_t * const url, char * pem_start, char * pem_end) {
+esp_err_t ota_install_encrypted(const uint8_t * url, const char * pem_start, const char * pem_end) {
     if (xOTAUpdateTaskHandle != NULL) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -42,7 +42,7 @@ esp_err_t ota_install_encrypted(const uint8_t * const url, char * pem_start, cha
 
 
 void ota_update_task(void *) {
-    ESP_LOGI(TAG, "Starting OTA, (%s)", (char *)ota_firmware_upgrade_url);
+    ESP_LOGI(TAG, "Starting OTA, heap_size %ld \n%s", esp_get_free_heap_size(), (char *)ota_firmware_upgrade_url);
 
     esp_err_t ota_finish_err = ESP_OK;
     esp_http_client_config_t http_config = {
@@ -56,12 +56,16 @@ void ota_update_task(void *) {
         .http_config = &http_config,
     };
 
+    ESP_LOGI(TAG, "ota_rsa_private_pem_start=%p", ota_rsa_private_pem_start);
+    
     #if CONFIG_ESP_HTTPS_OTA_DECRYPT_CB
+    ESP_LOGI(TAG, "Setup decrypt_cb");
+    esp_decrypt_handle_t decrypt_handle = NULL;
     if (ota_rsa_private_pem_start != NULL && ota_rsa_private_pem_end != NULL) {
         esp_decrypt_cfg_t cfg = {};
         cfg.rsa_pub_key = ota_rsa_private_pem_start;
         cfg.rsa_pub_key_len = ota_rsa_private_pem_end - ota_rsa_private_pem_start;
-        esp_decrypt_handle_t decrypt_handle = esp_encrypted_img_decrypt_start(&cfg);
+        decrypt_handle = esp_encrypted_img_decrypt_start(&cfg);
         if (!decrypt_handle) {
             ESP_LOGE(TAG, "OTA upgrade failed");
             vTaskDelete(xOTAUpdateTaskHandle);
@@ -78,17 +82,17 @@ void ota_update_task(void *) {
         vTaskDelete(xOTAUpdateTaskHandle);
     }
 
-    esp_app_desc_t app_desc;
-    err = esp_https_ota_get_img_desc(https_ota_handle, &app_desc);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_https_ota_read_img_desc failed");
-        goto ota_end;
-    }
-    err = validate_image_header(&app_desc);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "image header verification failed");
-        goto ota_end;
-    }
+    // esp_app_desc_t app_desc;
+    // err = esp_https_ota_get_img_desc(https_ota_handle, &app_desc);
+    // if (err != ESP_OK) {
+    //     ESP_LOGE(TAG, "esp_https_ota_read_img_desc failed");
+    //     goto ota_end;
+    // }
+    // err = validate_image_header(&app_desc);
+    // if (err != ESP_OK) {
+    //     ESP_LOGE(TAG, "image header verification failed");
+    //     goto ota_end;
+    // }
 
     while (1) {
         err = esp_https_ota_perform(https_ota_handle);
@@ -100,11 +104,21 @@ void ota_update_task(void *) {
         // data read so far.
         ESP_LOGD(TAG, "Image bytes read: %d", esp_https_ota_get_image_len_read(https_ota_handle));
     }
-
-    if (esp_https_ota_is_complete_data_received(https_ota_handle) != true) {
+    if (!esp_https_ota_is_complete_data_received(https_ota_handle)) {
         // the OTA image was not completely received and user can customise the response to this situation.
         ESP_LOGE(TAG, "Complete data was not received.");
     } else {
+        #if CONFIG_ESP_HTTPS_OTA_DECRYPT_CB
+        if (ota_rsa_private_pem_start != NULL && ota_rsa_private_pem_end != NULL) {
+            err = esp_encrypted_img_decrypt_end(decrypt_handle);
+            if (err != ESP_OK) {
+                esp_https_ota_abort(https_ota_handle);
+                ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed");
+                vTaskDelete(xOTAUpdateTaskHandle);
+                return;
+            }
+        }
+        #endif
         ota_finish_err = esp_https_ota_finish(https_ota_handle);
         if ((err == ESP_OK) && (ota_finish_err == ESP_OK)) {
             ESP_LOGI(TAG, "ESP_HTTPS_OTA upgrade successful. Rebooting ...");
@@ -119,7 +133,6 @@ void ota_update_task(void *) {
         }
     }
 
-ota_end:
     esp_https_ota_abort(https_ota_handle);
     ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed");
     vTaskDelete(xOTAUpdateTaskHandle);
@@ -130,10 +143,12 @@ esp_err_t validate_image_header(const esp_app_desc_t *new_app_info) {
         return ESP_ERR_INVALID_ARG;
     }
 
+    ESP_LOGI(TAG, "New firmware version: %s, idf_ver=%s", new_app_info->version, new_app_info->idf_ver);
+
     const esp_partition_t *running = esp_ota_get_running_partition();
     esp_app_desc_t running_app_info;
     if (esp_ota_get_partition_description(running, &running_app_info) == ESP_OK) {
-        ESP_LOGI(TAG, "Running firmware version: %s", running_app_info.version);
+        ESP_LOGI(TAG, "Running firmware version: %s, idf_ver=%s", running_app_info.version, running_app_info.idf_ver);
     }
 
     return ESP_OK;
